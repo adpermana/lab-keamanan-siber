@@ -1,0 +1,65 @@
+services:
+  web:
+    build: .
+    container_name: simpeg-web
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount source code agar perubahan langsung生效 (hot reload)
+      - .:/var/www/html/
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASS: rootpassword
+      DB_NAME: simulasi_keamanan
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - simpeg-network
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    container_name: simpeg-db
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: simulasi_keamanan
+    volumes:
+      # Auto-init database dengan data dummy
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Persistent data (comment out jika ingin reset setiap restart)
+      # - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 10s
+      retries: 10
+      interval: 10s
+    networks:
+      - simpeg-network
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: simpeg-phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: rootpassword
+      UPLOAD_LIMIT: 200M
+    depends_on:
+      - db
+    networks:
+      - simpeg-network
+    restart: unless-stopped
+
+networks:
+  simpeg-network:
+    driver: bridge
+
+# volumes:
+#   db-data:

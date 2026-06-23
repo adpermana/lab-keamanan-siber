@@ -1,0 +1,57 @@
+services:
+  web:
+    build: .
+    container_name: fotorecv3-web
+    ports:
+      - "8082:80"
+    volumes:
+      - ./html:/var/www/html/
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASS: admin1234
+      DB_NAME: fotorec
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fotorec-network
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    container_name: fotorecv3-db
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: admin1234
+      MYSQL_DATABASE: fotorec
+    volumes:
+      - ./data.sql:/docker-entrypoint-initdb.d/data.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 10s
+      retries: 10
+      interval: 10s
+    networks:
+      - fotorec-network
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: fotorecv3-pma
+    ports:
+      - "8083:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: admin1234
+    depends_on:
+      - db
+    networks:
+      - fotorec-network
+    restart: unless-stopped
+
+networks:
+  fotorec-network:
+    driver: bridge

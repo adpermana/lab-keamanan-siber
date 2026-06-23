@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+
+# Upload content (keep directory structure)
+apps/vulnerable-app/uploads/*
+!apps/vulnerable-app/uploads/.gitkeep
