@@ -103,6 +103,60 @@ services:
       - lab-network
     restart: unless-stopped
 
+  # ========== SPMB Laravel ==========
+  spmb-db:
+    image: mysql:8.0
+    container_name: spmb-db
+    ports:
+      - "3309:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: spmb_laravel
+    volumes:
+      - spmb_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 10s
+      retries: 10
+      interval: 10s
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+  spmb-web:
+    build: ./apps/spmb-laravel
+    container_name: spmb-web
+    ports:
+      - "8085:80"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: spmb-db
+      DB_PORT: 3306
+      DB_DATABASE: spmb_laravel
+      DB_USERNAME: root
+      DB_PASSWORD: rootpassword
+    depends_on:
+      spmb-db:
+        condition: service_healthy
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+  spmb-pma:
+    image: phpmyadmin:latest
+    container_name: spmb-phpmyadmin
+    ports:
+      - "8086:80"
+    environment:
+      PMA_HOST: spmb-db
+      PMA_USER: root
+      PMA_PASSWORD: rootpassword
+    depends_on:
+      - spmb-db
+    networks:
+      - lab-network
+    restart: unless-stopped
+
   # ========== Launcher ==========
   launcher:
     build: ./apps/launcher
@@ -114,6 +168,9 @@ services:
     networks:
       - lab-network
     restart: unless-stopped
+
+volumes:
+  spmb_mysql_data:
 
 networks:
   lab-network:

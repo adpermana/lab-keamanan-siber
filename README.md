@@ -26,6 +26,8 @@ docker compose up -d --build
 | **SIMPEG phpMyAdmin** | http://localhost:8081 | root / rootpassword |
 | **Fotorecv3** (vulnerable) | http://localhost:8082 | admin / p@sswoRd1234 |
 | **Fotorecv3 phpMyAdmin** | http://localhost:8083 | root / admin1234 |
+| **SPMB** (Laravel, vulnerable) | http://localhost:8085 | admin / admin123 |
+| **SPMB phpMyAdmin** | http://localhost:8086 | root / rootpassword |
 
 ## 🎯 Lab Soal Keamanan
 

